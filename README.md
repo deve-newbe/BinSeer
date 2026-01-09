@@ -1,2 +1,2 @@
-# Binseer
+# BinSeer
 ELF/DWARF Visualizer
