@@ -429,10 +429,6 @@ void MainWindow::onTreeSelectionChanged(const QItemSelection &selected, const QI
     if (!node)
         return;
 
-    qDebug() << "Selected symbol:"
-             << (node->data.empty() ? "unnamed" : QString::fromUtf8(reinterpret_cast<const char*>(node->data.data()), node->data.size()))
-             << " Addr:" << QString::asprintf("0x%X", node->Addr);
-
     // Now, you can update your QTextEdit with the binary content
     displayBinaryFile(node);
 }
@@ -470,7 +466,7 @@ void MainWindow::loadElf(std::string file_name)
 
 
 
-        TreeElementType* rootNode = dwarf->root;
+        TreeElementType* rootNode = dwarf->DataRoot;
 
        // if (!rootNode)
         {
@@ -483,7 +479,7 @@ void MainWindow::loadElf(std::string file_name)
         populateTopLevel(rootNode, rootItem);
         ui->treeView->setUpdatesEnabled(true);
 
-        FileBin_VarInfoType* rootNodeSymbol = dwarf->Symbol;
+        FileBin_VarInfoType* rootNodeSymbol = dwarf->SymbolRoot;
 
         //if (!rootNodeSymbol)
         {

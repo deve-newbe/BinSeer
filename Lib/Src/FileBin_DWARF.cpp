@@ -52,82 +52,82 @@
 
 class MappedFile
 {
-public:
-    const uint8_t* data = nullptr;
-    size_t size = 0;
+    public:
+        const uint8_t* data = nullptr;
+        size_t size = 0;
 
-#if defined(_WIN32) || defined(_WIN64)
-private:
-    HANDLE hFile = INVALID_HANDLE_VALUE;
-    HANDLE hMap = NULL;
-#else
-private:
-    int fd = -1;
-#endif
+    #if defined(_WIN32) || defined(_WIN64)
+    private:
+        HANDLE hFile = INVALID_HANDLE_VALUE;
+        HANDLE hMap = NULL;
+    #else
+    private:
+        int fd = -1;
+    #endif
 
-public:
-    bool open(const std::string& fileName)
-    {
-#if defined(_WIN32) || defined(_WIN64)
-        hFile = CreateFileA(fileName.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                            NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-        if (hFile == INVALID_HANDLE_VALUE) return false;
+    public:
+        bool open(const std::string& fileName)
+        {
+    #if defined(_WIN32) || defined(_WIN64)
+            hFile = CreateFileA(fileName.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                                NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+            if (hFile == INVALID_HANDLE_VALUE) return false;
 
-        LARGE_INTEGER fsize;
-        if (!GetFileSizeEx(hFile, &fsize)) return false;
-        size = static_cast<size_t>(fsize.QuadPart);
+            LARGE_INTEGER fsize;
+            if (!GetFileSizeEx(hFile, &fsize)) return false;
+            size = static_cast<size_t>(fsize.QuadPart);
 
-        hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
-        if (!hMap) return false;
+            hMap = CreateFileMappingA(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+            if (!hMap) return false;
 
-        data = static_cast<const uint8_t*>(MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0));
-        if (!data) return false;
+            data = static_cast<const uint8_t*>(MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0));
+            if (!data) return false;
 
-#else
-        fd = ::open(fileName.c_str(), O_RDONLY);
-        if (fd < 0) return false;
+    #else
+            fd = ::open(fileName.c_str(), O_RDONLY);
+            if (fd < 0) return false;
 
-        struct stat st;
-        if (fstat(fd, &st) < 0) return false;
-        size = st.st_size;
+            struct stat st;
+            if (fstat(fd, &st) < 0) return false;
+            size = st.st_size;
 
-        data = static_cast<const uint8_t*>(mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0));
-        if (data == MAP_FAILED) return false;
-#endif
-        return true;
-    }
+            data = static_cast<const uint8_t*>(mmap(nullptr, size, PROT_READ, MAP_PRIVATE, fd, 0));
+            if (data == MAP_FAILED) return false;
+    #endif
+            return true;
+        }
 
-    void close()
-    {
-#if defined(_WIN32) || defined(_WIN64)
-        if (data) UnmapViewOfFile(data);
-        if (hMap) CloseHandle(hMap);
-        if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
-#else
-        if (data) munmap((void*)data, size);
-        if (fd >= 0) ::close(fd);
-#endif
-        data = nullptr;
-        size = 0;
-    }
+        void close()
+        {
+    #if defined(_WIN32) || defined(_WIN64)
+            if (data) UnmapViewOfFile(data);
+            if (hMap) CloseHandle(hMap);
+            if (hFile != INVALID_HANDLE_VALUE) CloseHandle(hFile);
+    #else
+            if (data) munmap((void*)data, size);
+            if (fd >= 0) ::close(fd);
+    #endif
+            data = nullptr;
+            size = 0;
+        }
 
-    ~MappedFile()
-    {
-        close();
-    }
+        ~MappedFile()
+        {
+            close();
+        }
 };
-
 
 #define LIBPARSER_DWARF_BYTESLEBMAX 24
 #define LIBPARSER_DWARF_BITSPERBYTE 8
 #define LIBPARSER_DWARF_DEBUG_ABBRV (0)
 #define LIBPARSER_DWARF_DEBUG (0)
-#define LIBPARSER_DWARF_CU_HEADER_SIZE 11
+
+uint8_t HeaderSize_Byte;
 
 FileBin_DWARF::FileBin_DWARF()
 {
-    this->root = nullptr;
-    this->Symbol = nullptr;
+    this->DataRoot = nullptr;
+    this->SymbolRoot = nullptr;
 }
 
 std::string FileBin_DWARF::FileBin_DWARF_DW_TAG_ToString(uint16_t StrCode)
@@ -340,7 +340,7 @@ std::string FileBin_DWARF::FileBin_DWARF_DW_AT_ToString(uint16_t StrCode)
     case  DW_AT_deleted:              section_header_type_str = "DW_AT_deleted               "; break;
     case  DW_AT_defaulted:              section_header_type_str = "DW_AT_defaulted             "; break;
     case  DW_AT_loclists_base:              section_header_type_str = "DW_AT_loclists_base         "; break;
-    default:        section_header_type_str = "Invalid Section Type: " ; break;
+    default:        section_header_type_str = "Invalid DW_AT: " + std::to_string((int)StrCode); break;
     }
 
     return section_header_type_str;
@@ -401,8 +401,7 @@ std::string FileBin_DWARF::FileBin_DWARF_DW_FORM_ToString(uint16_t StrCode)
     return section_header_type_str;
 }
 
-inline uint64_t FileBin_DWARF::FileBin_DWARF_ReadULEB128(
-    const uint8_t*& ptr)
+inline uint64_t FileBin_DWARF::FileBin_DWARF_ReadULEB128(const uint8_t*& ptr)
 {
     uint64_t result = 0;
     unsigned shift = 0;
@@ -476,6 +475,10 @@ FileBin_DWARF_CompileUnitDataType* FileBin_DWARF::ParseAbbrevOffset(const uint8_
         abbrev.tag = static_cast<uint32_t>(FileBin_DWARF_ReadULEB128(ptr));
         abbrev.hasChildren = (*ptr++ != 0);
 
+#if (1 == LIBPARSER_DWARF_DEBUG)
+        std::cout << "Abbrev " << abbrev.code << "\n";
+#endif
+
         while (true)
         {
             uint64_t attr = FileBin_DWARF_ReadULEB128(ptr);
@@ -484,8 +487,10 @@ FileBin_DWARF_CompileUnitDataType* FileBin_DWARF::ParseAbbrevOffset(const uint8_
             if (attr == 0 && form == 0)
             {
                 break;
-            }
-
+            }      
+#if (1 == LIBPARSER_DWARF_DEBUG)
+            std::cout << "  Attr " << FileBin_DWARF_DW_AT_ToString(attr) << "\n";
+#endif
             abbrev.attributes.push_back({static_cast<uint32_t>(attr), static_cast<uint32_t>(form)});
         }
 
@@ -498,11 +503,6 @@ FileBin_DWARF_CompileUnitDataType* FileBin_DWARF::ParseAbbrevOffset(const uint8_
     return &insIt->second;
 }
 
-float bytesToFloat(const uint8_t bytes[4]) {
-    float value;
-    memcpy(&value, bytes, sizeof(float));
-    return value;
-}
 void FileBin_DWARF::PrintAllAbbrevInfo() const
 {
     for (const auto& cachePair : AbbrevOffsetCache)
@@ -546,18 +546,6 @@ static uint32_t readU32(const uint8_t*& p)
     return v;
 }
 
-// Reads a null-terminated string from the file and stores the bytes in a vector
-static std::vector<uint8_t> readNullTerminatedString(FILE* file)
-{
-    std::vector<uint8_t> data;
-    int ch; // fgetc returns int to detect EOF
-    while ((ch = fgetc(file)) != 0 && ch != EOF)
-    {
-        data.push_back(static_cast<uint8_t>(ch));
-    }
-    return data;
-}
-
 inline uint64_t readU64(const uint8_t*& ptr)
 {
     uint64_t val = 0;
@@ -568,165 +556,160 @@ inline uint64_t readU64(const uint8_t*& ptr)
     return val;
 }
 
-std::vector<uint8_t> FileBin_DWARF::ReadAttributeValue(
-    const uint8_t*& ptr,
-    uint32_t form,
-    uint8_t addrSize,
-    const uint8_t* fileBase) // base of file (for .strp strings)
+std::vector<uint8_t> FileBin_DWARF::ReadAttributeValue(const uint8_t*& ptr, uint32_t form, uint8_t addrSize, const uint8_t* fileBase) // base of file (for .strp strings)
 {
     std::vector<uint8_t> data;
 
     switch (form)
     {
-    case DW_FORM_string:
-    {
-        // null-terminated string in place
-        const uint8_t* start = ptr;
-        while (*ptr) ++ptr;
-        data.insert(data.end(), start, ptr);
-        ++ptr; // skip null terminator
-        break;
-    }
-
-    case DW_FORM_block1:
-    {
-        uint8_t blockLen = *ptr++;
-        data.insert(data.end(), ptr, ptr + blockLen);
-        ptr += blockLen;
-        break;
-    }
-
-    case DW_FORM_block2:
-    {
-        uint16_t blockLen = readU16(ptr);
-        data.insert(data.end(), ptr, ptr + blockLen);
-        ptr += blockLen;
-        break;
-    }
-
-    case DW_FORM_strp:
-    {
-        uint32_t strOffset = readU32(ptr);
-        const uint8_t* strStart = fileBase + StrOffset + strOffset;
-        const uint8_t* strEnd = strStart;
-        while (*strEnd) ++strEnd;
-        data.insert(data.end(), strStart, strEnd);
-        break;
-    }
-
-    case DW_FORM_data1:
-    {
-        data.push_back(*ptr++);
-        break;
-    }
-
-    case DW_FORM_data2:
-    {
-        uint16_t v = readU16(ptr);
-        data.resize(2);
-        std::memcpy(data.data(), &v, 2);
-        break;
-    }
-
-    case DW_FORM_data4:
-    case DW_FORM_ref4:
-    {
-        uint32_t v = readU32(ptr);
-        data.resize(4);
-        std::memcpy(data.data(), &v, 4);
-        break;
-    }
-
-    case DW_FORM_data8:
-    case DW_FORM_ref8:
-    {
-        uint64_t v = readU64(ptr);
-        data.resize(8);
-        std::memcpy(data.data(), &v, 8);
-        break;
-    }
-
-    case DW_FORM_addr:
-    {
-        if (addrSize == 8)
+        case DW_FORM_string:
         {
-            uint64_t v = readU64(ptr);
-            data.resize(8);
-            std::memcpy(data.data(), &v, 8);
+            // null-terminated string in place
+            const uint8_t* start = ptr;
+            while (*ptr) ++ptr;
+            data.insert(data.end(), start, ptr);
+            ++ptr; // skip null terminator
+            break;
         }
-        else
+
+        case DW_FORM_block1:
+        {
+            uint8_t blockLen = *ptr++;
+            data.insert(data.end(), ptr, ptr + blockLen);
+            ptr += blockLen;
+            break;
+        }
+
+        case DW_FORM_block2:
+        {
+            uint16_t blockLen = readU16(ptr);
+            data.insert(data.end(), ptr, ptr + blockLen);
+            ptr += blockLen;
+            break;
+        }
+
+        case DW_FORM_strp:
+        {
+            uint32_t strOffset = readU32(ptr);
+            const uint8_t* strStart = fileBase + StrOffset + strOffset;
+            const uint8_t* strEnd = strStart;
+            while (*strEnd) ++strEnd;
+            data.insert(data.end(), strStart, strEnd);
+            break;
+        }
+
+        case DW_FORM_data1:
+        {
+            data.push_back(*ptr++);
+            break;
+        }
+
+        case DW_FORM_data2:
+        {
+            uint16_t v = readU16(ptr);
+            data.resize(2);
+            std::memcpy(data.data(), &v, 2);
+            break;
+        }
+
+        case DW_FORM_data4:
+        case DW_FORM_ref4:
         {
             uint32_t v = readU32(ptr);
             data.resize(4);
             std::memcpy(data.data(), &v, 4);
+            break;
         }
-        break;
-    }
 
-    case DW_FORM_udata:
-    {
-        uint64_t v = FileBin_DWARF_ReadULEB128(ptr);
-        do {
-            data.push_back(static_cast<uint8_t>(v & 0xFF));
-            v >>= 8;
-        } while (v);
-        break;
-    }
+        case DW_FORM_data8:
+        case DW_FORM_ref8:
+        {
+            uint64_t v = readU64(ptr);
+            data.resize(8);
+            std::memcpy(data.data(), &v, 8);
+            break;
+        }
 
-    case DW_FORM_sdata:
-    {
-        int64_t v = FileBin_DWARF_ReadSLEB128(ptr);
-        data.resize(sizeof(v));
-        std::memcpy(data.data(), &v, sizeof(v));
-        break;
-    }
+        case DW_FORM_addr:
+        {
+            if (addrSize == 8)
+            {
+                uint64_t v = readU64(ptr);
+                data.resize(8);
+                std::memcpy(data.data(), &v, 8);
+            }
+            else
+            {
+                uint32_t v = readU32(ptr);
+                data.resize(4);
+                std::memcpy(data.data(), &v, 4);
+            }
+            break;
+        }
 
-    case DW_FORM_sec_offset:
-    {
-        uint32_t v = readU32(ptr);
-        data = { static_cast<uint8_t>(v & 0xFF),
-                static_cast<uint8_t>((v >> 8) & 0xFF),
-                static_cast<uint8_t>((v >> 16) & 0xFF),
-                static_cast<uint8_t>((v >> 24) & 0xFF) };
-        break;
-    }
+        case DW_FORM_udata:
+        {
+            uint64_t v = FileBin_DWARF_ReadULEB128(ptr);
+            do {
+                data.push_back(static_cast<uint8_t>(v & 0xFF));
+                v >>= 8;
+            } while (v);
+            break;
+        }
 
-    case DW_FORM_exprloc:
-    {
-        uint64_t len = FileBin_DWARF_ReadULEB128(ptr);
-        data.insert(data.end(), ptr, ptr + len);
-        ptr += len;
-        break;
-    }
+        case DW_FORM_sdata:
+        {
+            int64_t v = FileBin_DWARF_ReadSLEB128(ptr);
+            data.resize(sizeof(v));
+            std::memcpy(data.data(), &v, sizeof(v));
+            break;
+        }
 
-    case DW_FORM_flag:
-    {
-        data.push_back(*ptr++);
-        break;
-    }
+        case DW_FORM_sec_offset:
+        {
+            uint32_t v = readU32(ptr);
+            data = { static_cast<uint8_t>(v & 0xFF),
+                    static_cast<uint8_t>((v >> 8) & 0xFF),
+                    static_cast<uint8_t>((v >> 16) & 0xFF),
+                    static_cast<uint8_t>((v >> 24) & 0xFF) };
+            break;
+        }
 
-    case DW_FORM_flag_present:
-    {
-        data.push_back(1);
-        break;
-    }
+        case DW_FORM_exprloc:
+        {
+            uint64_t len = FileBin_DWARF_ReadULEB128(ptr);
+            data.insert(data.end(), ptr, ptr + len);
+            ptr += len;
+            break;
+        }
 
-    default:
-    {
-        std::cerr << "[ERROR] Unsupported DW_FORM: " << form << "\n";
-        break;
-    }
+        case DW_FORM_ref_udata:
+        {
+            uint64_t len = FileBin_DWARF_ReadULEB128(ptr);
+            //data.insert(data.end(), ptr, ptr + len);
+            //ptr += len;
+        }
+
+        case DW_FORM_flag:
+        {
+            data.push_back(*ptr++);
+            break;
+        }
+
+        case DW_FORM_flag_present:
+        {
+            data.push_back(1);
+            break;
+        }
+
+        default:
+        {
+            std::cerr << "[ERROR] Unsupported DW_FORM: " << form << "\n";
+            break;
+        }
     }
 
     return data;
-}
-
-static uint32_t readUIntLE(const std::vector<uint8_t>& v)
-{
-    uint32_t r = 0;
-    for (size_t i = 0; i < v.size(); ++i)
-        r |= uint32_t(v[i]) << (8 * i);
-    return r;
 }
 
 TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fileBase, uint32_t cuOffset, uint32_t infoLen, FileBin_DWARF_CompileUnitType* cu, TreeElementType* parent)
@@ -737,8 +720,6 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
     while (ptr < sectionEnd)
     {
-
-        // std::cout << "go" << std::endl;
         const uint8_t* dieStart = ptr;
         // Set CurrentAbbrevOffset to the offset of this DIE relative to the CU start
         CurrentAbbrevOffset2 = static_cast<uint32_t>(dieStart - fileBase);
@@ -758,8 +739,6 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
         TreeElementType* node = new TreeElementType();
         node->cu = cu;
-
-        uint32_t dieOffset = static_cast<uint32_t>(dieStart - fileBase) - cuOffset;
 
         // Parse attributes
         for (const FileBin_DWARF_AbbrevAttr& attrForm : abbrev.attributes)
@@ -783,11 +762,11 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-                    break;
-                }
+                    case DW_AT_name:
+                    {
+                        node->data = data;
+                        break;
+                    }
                 }
 
                 break;
@@ -808,17 +787,17 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-                    break;
-                }
+                    case DW_AT_name:
+                    {
+                        node->data = data;
+                        break;
+                    }
 
-                case DW_AT_byte_size:
-                {
-                    node->Size.push_back(data[0]);
-                    break;
-                }
+                    case DW_AT_byte_size:
+                    {
+                        node->Size.push_back(data[0]);
+                        break;
+                    }
                 }
                 break;
             }
@@ -829,11 +808,11 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-                    break;
-                }
+                    case DW_AT_name:
+                    {
+                        node->data = data;
+                        break;
+                    }
                 }
                 break;
             }
@@ -852,13 +831,13 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
                 }
                 break;
             }
@@ -880,13 +859,13 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
                 }
                 break;
             }
@@ -897,25 +876,35 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
-                case DW_AT_count:
-                {
-                    uint32_t Size = 0;
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
+                    case DW_AT_count:
+                    {
+                        uint32_t Size = 0;
 
-                    for (size_t i = 0; i < data.size(); ++i)
-                        Size += static_cast<uint32_t>(data[i]) << (i * 8);
+                        for (size_t i = 0; i < data.size(); ++i)
+                            Size += static_cast<uint32_t>(data[i]) << (i * 8);
 
-                    // std::cout << "dim coun t "<< (int)Size << std::endl;
+                        // std::cout << "dim coun t "<< (int)Size << std::endl;
 
-                    node->Size.push_back(Size);
-                    break;
-                }
+                        node->Size.push_back(Size);
+                        break;
+                    }
+                    case DW_AT_upper_bound:
+                    {
+                        uint32_t val = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            val += static_cast<uint32_t>(data[i]) << (i * 8);
+
+                        // Convert Upper Bound to Count
+                        node->Size.push_back(val + 1);
+                        break;
+                    }
                 }
                 break;
             }
@@ -934,13 +923,13 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
                 }
                 break;
             }
@@ -959,17 +948,17 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-                    break;
-                }
+                    case DW_AT_name:
+                    {
+                        node->data = data;
+                        break;
+                    }
 
-                case DW_AT_byte_size:
-                {
-                    node->Size.push_back(data[0]);
-                    break;
-                }
+                    case DW_AT_byte_size:
+                    {
+                        node->Size.push_back(data[0]);
+                        break;
+                    }
                 }
                 break;
             }
@@ -988,13 +977,24 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
+                    case DW_AT_byte_size:
+                    {
+                        uint32_t Size = 0;
+
+                        for (size_t i = 0; i < data.size(); ++i)
+                            Size += static_cast<uint32_t>(data[i]) << (i * 8);
+
+                        // std::cout << "dim coun t "<< (int)Size << std::endl;
+
+                        node->Size.push_back(Size);
+                    }
                 }
                 break;
             }
@@ -1013,26 +1013,26 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-                    break;
-                }
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
-                case DW_AT_data_member_location:
-                {
-                    node->Location = 0;
+                    case DW_AT_name:
+                    {
+                        node->data = data;
+                        break;
+                    }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
+                    case DW_AT_data_member_location:
+                    {
+                        node->Location = 0;
 
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->Location += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->Location += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
                 }
                 break;
             }
@@ -1043,62 +1043,62 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_name:
-                {
-                    node->data = data;
-
-                    break;
-                }
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
-                case DW_AT_location:
-                {
-                    node->Addr = 0;
-                    for (size_t i = 1; i < data.size(); ++i)
+                    case DW_AT_name:
                     {
-                        node->Addr += static_cast<uint32_t>(data[i]) << ((i - 1) * 8);
+                        node->data = data;
+
+                        break;
                     }
-                    break;
-                }
-                case DW_AT_declaration:
-                {
-                    node->isDeclaration = true;
-                    uint32_t dieOffset = CurrentAbbrevOffset2 - cu->Offset - InfoOffset;
-                    cu->varDeclaration.emplace(dieOffset, node);
-                    break;
-                }
-
-                case DW_AT_specification:
-                {
-                    // If this is a definition, DW_AT_specification points to the declaration
-                    uint32_t specOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
+                    case DW_AT_type:
                     {
-                        specOffset |= static_cast<uint32_t>(data[i]) << (8 * i);
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
+                    case DW_AT_location:
+                    {
+                        node->Addr = 0;
+                        for (size_t i = 1; i < data.size(); ++i)
+                        {
+                            node->Addr += static_cast<uint32_t>(data[i]) << ((i - 1) * 8);
+                        }
+                        break;
+                    }
+                    case DW_AT_declaration:
+                    {
+                        node->isDeclaration = true;
+                        uint32_t dieOffset = CurrentAbbrevOffset2 - cu->Offset - InfoOffset;
+                        cu->varDeclaration.emplace(dieOffset, node);
+                        break;
                     }
 
-                    auto it = cu->varDeclaration.find(specOffset);
-
-                    if (it != cu->varDeclaration.end())
+                    case DW_AT_specification:
                     {
-                        TreeElementType* declNode = it->second;
+                        // If this is a definition, DW_AT_specification points to the declaration
+                        uint32_t specOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                        {
+                            specOffset |= static_cast<uint32_t>(data[i]) << (8 * i);
+                        }
 
-                        // Copy relevant info from declaration
-                        if (node->data.empty())
-                            node->data = declNode->data;
+                        auto it = cu->varDeclaration.find(specOffset);
 
-                        if (node->typeOffset == 0)
-                            node->typeOffset = declNode->typeOffset;
+                        if (it != cu->varDeclaration.end())
+                        {
+                            TreeElementType* declNode = it->second;
 
-                        node->Addr = declNode->Addr;
+                            // Copy relevant info from declaration
+                            if (node->data.empty())
+                                node->data = declNode->data;
+
+                            if (node->typeOffset == 0)
+                                node->typeOffset = declNode->typeOffset;
+
+                            node->Addr = declNode->Addr;
+                        }
+                        break;
                     }
-                    break;
-                }
                 }
                 break;
             }
@@ -1116,13 +1116,13 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
                 switch (attrForm.attribute)
                 {
-                case DW_AT_type:
-                {
-                    node->typeOffset = 0;
-                    for (size_t i = 0; i < data.size(); ++i)
-                        node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
-                    break;
-                }
+                    case DW_AT_type:
+                    {
+                        node->typeOffset = 0;
+                        for (size_t i = 0; i < data.size(); ++i)
+                            node->typeOffset += static_cast<uint32_t>(data[i]) << (i * 8);
+                        break;
+                    }
                 }
                 break;
             }
@@ -1139,9 +1139,13 @@ TreeElementType* FileBin_DWARF::ParseDIE(const uint8_t*& ptr, const uint8_t* fil
 
         // Sibling linkage
         if (prev)
+        {
             prev->next = node;
+        }
         else if (parent)
+        {
             parent->child = node;
+        }
 
         prev = node;
     }
@@ -1168,6 +1172,10 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         {
             newVar->DataType = FileBin_VARINFO_TYPE_UINT8;
         }
+        else if (str == "signed char")
+        {
+            newVar->DataType = FileBin_VARINFO_TYPE_SINT8;
+        }
         else if (str == "unsigned short" || str == "short unsigned int")
         {
             newVar->DataType = FileBin_VARINFO_TYPE_UINT16;
@@ -1184,6 +1192,14 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         {
             newVar->DataType = FileBin_VARINFO_TYPE_SINT32;
         }
+        else if (str == "unsigned long long" || str == "long long unsigned int")
+        {
+            newVar->DataType = FileBin_VARINFO_TYPE_UINT64;
+        }
+        else if (str == "long long" || str == "long long int")
+        {
+            newVar->DataType = FileBin_VARINFO_TYPE_SINT64;
+        }
         else if (str == "float")
         {
             newVar->DataType = FileBin_VARINFO_TYPE_FLOAT32;
@@ -1194,7 +1210,7 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         }
         else
         {
-            // Unknown type
+            std::cerr << "Unknown type " + str + "\n";
             newVar->DataType = FileBin_VARINFO_TYPE__UNKNOWN;
         }
 
@@ -1202,7 +1218,15 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         parent->DataType = newVar->DataType;
 
         if (node->Size.size() > 0)
+        {
             symbolSize = node->Size.at(0);
+            newVar->Size.push_back(symbolSize);
+            parent->Size = newVar->Size;
+        }
+        else
+        {
+            std::cerr << "Type with no size\n";
+        }
 
         if (!parent->child)
         {
@@ -1244,6 +1268,9 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
                 TreeElementType* typeNode = it->second;
                 // Recursively traverse the type tree and attach as child
                 symbolSize += SymbolResolveType(typeNode, newVar);
+                // Propagate dimension definition
+                parent->Size = newVar->Size;
+                //newVar->Size.push_back(symbolSize);
             }
         }
     }
@@ -1274,6 +1301,7 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
             {
                 // Recursively traverse the type tree and attach as child
                 symbolSize += SymbolResolveType(it->second, newVar);
+                parent->Size = newVar->Size;
             }
         }
     }
@@ -1307,11 +1335,13 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
                 symbolSize += SymbolResolveType(typeNode, newVar);
                 /* Propagate type */
                 parent->DataType = newVar->DataType;
+                parent->Size = newVar->Size;
             }
         }
     }
     else if (node->elementType == FILEBIN_DWARF_ELEMENT_STRUCTURE)
     {
+        uint8_t structTotalSize = 0;
         newVar = new FileBin_DWARF_VarInfoType();
         newVar->data = {'S', 'T', 'R'};
         newVar->TypeOffset = node->typeOffset;
@@ -1346,7 +1376,7 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
                     TreeElementType* typeNode = it->second;
                     newNodeMember->Addr = parent->Addr + nodeMember->Location;
                     elementSize = SymbolResolveType(typeNode, newNodeMember);
-                    newNodeMember->Size.push_back(elementSize);
+                    symbolSize += elementSize;
                 }
             }
 
@@ -1360,6 +1390,11 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
 
             nodeMember = nodeMember->next;
         }
+
+        //newVar->Size.push_back(symbolSize);
+        newVar->Size = node->Size;
+        symbolSize = node->Size.at(0);
+        parent->Size = node->Size;
 
     }
     else if (node->elementType == FILEBIN_DWARF_ELEMENT_ENUMERATION)
@@ -1398,7 +1433,9 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
             nodeMember = nodeMember->next;
         }
         if (node->Size.size() > 0)
-            symbolSize = node->Size.at(0);
+        {
+            parent->Size.push_back(node->Size.at(0));
+        }
     }
     else if (node->elementType == FILEBIN_DWARF_ELEMENT_ARRAY)
     {
@@ -1419,7 +1456,10 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         while (nodeMember != nullptr)
         {
             if (nodeMember->Size.size() > 0)
+            {
+                newVar->Size.push_back(nodeMember->Size.at(0));
                 parent->Size.push_back(nodeMember->Size.at(0));
+            }
             nodeMember = nodeMember->next;
         }
 
@@ -1431,6 +1471,8 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
             {
                 TreeElementType* typeNode = it->second;
                 symbolSize += SymbolResolveType(typeNode, newVar);
+                newVar->Size.push_back(symbolSize);
+                parent->Size.push_back(symbolSize);
 
                 /* Propagate type */
                 parent->DataType = newVar->DataType;
@@ -1444,6 +1486,8 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
         newVar->TypeOffset = node->typeOffset;
         newVar->isQualifier = true;
         newVar->Addr = parent->Addr;
+
+        std::cout << "DIMARRAY" << std::endl;
 
         // Append to parent's child list
         if (!parent->child)
@@ -1464,17 +1508,14 @@ uint8_t FileBin_DWARF::SymbolResolveType(TreeElementType* node, FileBin_DWARF_Va
             auto it = node->cu->typeList.find(node->typeOffset);
             if (it != node->cu->typeList.end())
             {
-                //std::cout << "Type found in CU typeList" << std::endl;
-                // traverseVariables(TreeElementType* node, FileBin_VarInfoType* parent)
                 TreeElementType* typeNode = it->second;
                 // Recursively traverse the type tree and attach as child
                 symbolSize += SymbolResolveType(typeNode, newVar);
+                newVar->Size.push_back(symbolSize);
             }
         }
     }
-
     return symbolSize;
-
 }
 
 void FileBin_DWARF::SymbolTraverse(TreeElementType* node, FileBin_DWARF_VarInfoType* parent)
@@ -1575,6 +1616,7 @@ void FileBin_DWARF::ParseAllAbbrvSectionHeader(const uint8_t* fileData, uint32_t
             newCU->AbrevOffset = readU32(ptr);
             newCU->AddrSize    = *ptr++;
             newCU->UnitType    = DW_UT_compile;
+            HeaderSize_Byte    = 11;
         }
         else if (newCU->Version == 5)
         {
@@ -1582,6 +1624,7 @@ void FileBin_DWARF::ParseAllAbbrvSectionHeader(const uint8_t* fileData, uint32_t
             newCU->UnitType    = *ptr++;
             newCU->AddrSize    = *ptr++;
             newCU->AbrevOffset = readU32(ptr);
+            HeaderSize_Byte    = 12;
         }
         else
         {
@@ -1637,8 +1680,8 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
     this->InfoOffset = InfoOffset;
     this->fileBase = file.data;
 
-    FreeTree(this->root);
-    this->root = nullptr;
+    FreeTree(this->DataRoot);
+    this->DataRoot = nullptr;
 
     for (auto* cu : this->CompilationUnit)
     {
@@ -1648,8 +1691,8 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
 
     this->AbbrevOffsetCache.clear();
 
-    FreeSymTree(this->Symbol);
-    this->Symbol = nullptr;
+    FreeSymTree(this->SymbolRoot);
+    this->SymbolRoot = nullptr;
 
     /* Identify and parse all compilation units headers (does not go deeper into parsing) */
     this->ParseAllAbbrvSectionHeader(file.data, Offset, InfoOffset, InfoLen);
@@ -1663,7 +1706,7 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
 
     std::vector<TreeElementType*> cuTreeNodes(cuCnt); // Direct mapping
     TreeElementType* currItem = new TreeElementType();
-    this->root = currItem;
+    this->DataRoot = currItem;
 
     // Build TreeElementType for each compilation unit
     for (uint32_t t = 0; t < cuCnt; t++)
@@ -1672,7 +1715,7 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
 
         const uint8_t* abbrevPtr = file.data + Offset + CompilationUnit[t]->AbrevOffset;
         CompilationUnit[t]->AbbrevInfo = ParseAbbrevOffset(abbrevPtr);
-        const uint8_t* cuStart = file.data + InfoOffset + CompilationUnit[t]->Offset + LIBPARSER_DWARF_CU_HEADER_SIZE;
+        const uint8_t* cuStart = file.data + InfoOffset + CompilationUnit[t]->Offset + HeaderSize_Byte;
         //const uint8_t* ptr = cuStart;
         ParseDIE(cuStart, file.data, InfoOffset + CompilationUnit[t]->Offset, CompilationUnit[t]->Length_Bytes, CompilationUnit[t], currItem);
 
@@ -1721,7 +1764,8 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
                 cuSymbol->elementType = FILEBIN_DWARF_ELEMENT_COMPILE_UNIT;
 
                 // Recurse into children of the CU (functions, types, globals)
-                if (targetNode->child->child) {
+                if (targetNode->child->child)
+                {
                     SymbolTraverse(targetNode->child->child, cuSymbol);
                 }
             }
@@ -1744,8 +1788,8 @@ uint8_t FileBin_DWARF::Parse(std::string file_name, uint32_t Offset, uint32_t Le
     for (uint32_t t = 0; t < cuCnt; ++t) {
         if (!cuSymbols[t]) continue;
 
-        if (!this->Symbol)
-            this->Symbol = cuSymbols[t];
+        if (!this->SymbolRoot)
+            this->SymbolRoot = cuSymbols[t];
         else
             lastSymbol->next = cuSymbols[t];
 
