@@ -1,9 +1,11 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "WidgetBinCalib.hpp"
 #include "FileBin_DWARF.h"
 #include <QMainWindow>
 #include <qitemselectionmodel.h>
+#include <qstandarditemmodel.h>
 
 QT_BEGIN_NAMESPACE
 namespace Ui {
@@ -30,9 +32,12 @@ protected:
 
 private:
     Ui::MainWindow *ui;
+    BinCalibToolWidget *ui_BinCalibWidget;
 
     void loadElf(std::string file_name);
     void onTreeSelectionChanged(const QItemSelection &selected, const QItemSelection &deselected);
     void displayBinaryFile(FileBin_VarInfoType *symbol);
+    void populateTopLevelSymbol(FileBin_VarInfoType* node, QStandardItem* parentItem);
+    void AddNewBaseFile(QString Filename);
 };
 #endif // MAINWINDOW_H

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(BinSeer VERSION 0.1 LANGUAGES CXX)
+project(Fynix VERSION 0.1 LANGUAGES CXX)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -24,12 +24,18 @@ set(PROJECT_SOURCES
         mainwindow.ui
         Lib/Src/FileBin_DWARF.cpp       # Add your .c file here
         Lib/Src/FileBin_ELF.cpp       # Add your .c file here
+        Lib/Src/FileBin_IntelHex.cpp       # Add your .c file here
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
-    qt_add_executable(BinSeer
+    qt_add_executable(Fynix
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
+        WidgetBinCalib.cpp
+        WidgetBinCalib.hpp
+        icon.qrc
+        WidgetTreeTextBox.hpp
+        WidgetTreeComboBox.hpp
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET BinSeer APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -37,21 +43,21 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
 # For more information, see https://doc.qt.io/qt-6/qt-add-executable.html#target-creation
 else()
     if(ANDROID)
-        add_library(BinSeer SHARED
+        add_library(Fynix SHARED
             ${PROJECT_SOURCES}
         )
 # Define properties for Android with Qt 5 after find_package() calls as:
 #    set(ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/android")
     else()
-        add_executable(BinSeer
+        add_executable(Fynix
             ${PROJECT_SOURCES}
         )
     endif()
 endif()
 
-target_link_libraries(BinSeer PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_libraries(Fynix PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
 
-target_compile_definitions(BinSeer PRIVATE
+target_compile_definitions(Fynix PRIVATE
     PROJECT_NAME="${PROJECT_NAME}"
     PROJECT_VERSION="${PROJECT_VERSION}"
 )
@@ -60,9 +66,9 @@ target_compile_definitions(BinSeer PRIVATE
 # If you are developing for iOS or macOS you should consider setting an
 # explicit, fixed bundle identifier manually though.
 if(${QT_VERSION} VERSION_LESS 6.1.0)
-  set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.BinSeer)
+  set(BUNDLE_ID_OPTION MACOSX_BUNDLE_GUI_IDENTIFIER com.example.Fynix)
 endif()
-set_target_properties(BinSeer PROPERTIES
+set_target_properties(Fynix PROPERTIES
     ${BUNDLE_ID_OPTION}
     MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION}
     MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}
@@ -71,12 +77,12 @@ set_target_properties(BinSeer PROPERTIES
 )
 
 include(GNUInstallDirs)
-install(TARGETS BinSeer
+install(TARGETS Fynix
     BUNDLE DESTINATION .
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 if(QT_VERSION_MAJOR EQUAL 6)
-    qt_finalize_executable(BinSeer)
+    qt_finalize_executable(Fynix)
 endif()

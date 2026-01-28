@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/icon">
+        <file alias="inspect.svg">Res/inspect.svg</file>
+        <file alias="calibrate.svg">Res/calibrate.svg</file>
+        <file alias="logo.png">Res/logo.png</file>
+        <file alias="folder-open.svg">Res/folder-open.svg</file>
+        <file alias="save-file.svg">Res/save-file.svg</file>
+        <file alias="close.svg">Res/close.svg</file>
+        <file alias="view_advanced.svg">Res/view_advanced.svg</file>
+        <file alias="folder_hex.svg">Res/folder_hex.svg</file>
+    </qresource>
+</RCC>

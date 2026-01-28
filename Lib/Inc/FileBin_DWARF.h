@@ -69,6 +69,7 @@ typedef enum
     FileBin_VARINFO_TYPE_FLOAT32,
     FileBin_VARINFO_TYPE_FLOAT64,
     FileBin_VARINFO_TYPE_ENUM,
+    FileBin_VARINFO_TYPE_STRUCT,
     FileBin_VARINFO_TYPE__LENGTH
 } FileBin_DWARF_VarInfoLenType;
 

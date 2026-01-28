@@ -15,10 +15,32 @@
 #include <QUrl>
 #include <QFileInfo>
 #include <QMetaType>
+#include "WidgetBinCalib.hpp"
+#include <QIcon>
+#include <QPixmap>
+#include <QIcon>
+#include <QTransform>
+#include "FileBin_IntelHex.hpp"
+
+QIcon rotateIcon(const QIcon &icon, qreal angle)
+{
+    // Choose the actual pixmap (default size)
+    QPixmap pixmap = icon.pixmap(icon.actualSize(QSize(32, 32)));
+
+    // Rotate the pixmap
+    QTransform transform;
+    transform.rotate(angle);
+    QPixmap rotated = pixmap.transformed(transform, Qt::SmoothTransformation);
+
+    // Return a new QIcon
+    return QIcon(rotated);
+}
+
 Q_DECLARE_METATYPE(FileBin_VarInfoType*)
 
 FileBin_ELF *elf;
 FileBin_DWARF *dwarf;
+vector<FileBin_IntelHex_Memory *> base;
 
 
 static std::string TagToString(uint32_t tag)
@@ -117,9 +139,12 @@ static QString formatType(uint32_t typeId)
     case FileBin_VARINFO_TYPE_SINT16:    return QStringLiteral("sint16");
     case FileBin_VARINFO_TYPE_UINT32:    return QStringLiteral("uint32");
     case FileBin_VARINFO_TYPE_SINT32:    return QStringLiteral("sint32");
+    case FileBin_VARINFO_TYPE_UINT64:    return QStringLiteral("uint32");
+    case FileBin_VARINFO_TYPE_SINT64:    return QStringLiteral("sint32");
     case FileBin_VARINFO_TYPE_FLOAT32:   return QStringLiteral("float32");
     case FileBin_VARINFO_TYPE_FLOAT64:   return QStringLiteral("float64");
-    case FileBin_VARINFO_TYPE_ENUM:     return QStringLiteral("enum");
+    case FileBin_VARINFO_TYPE_ENUM:     return QStringLiteral("[enum]");
+    case FileBin_VARINFO_TYPE_STRUCT:     return QStringLiteral("[struct]");
     case FileBin_VARINFO_TYPE__UNKNOWN:
     default:
         return QStringLiteral("");
@@ -274,10 +299,12 @@ void populateTopLevel(TreeElementType* node, QStandardItem* parentItem)
     }
 }
 
-void populateTopLevelSymbol(FileBin_VarInfoType* node, QStandardItem* parentItem)
+void MainWindow::populateTopLevelSymbol(FileBin_VarInfoType* node, QStandardItem* parentItem)
 {
     static QFont italicFont;
     italicFont.setItalic(true);
+
+    this->ui_BinCalibWidget->Calib_MasterStruct(node);
 
     while (node)
     {
@@ -311,6 +338,9 @@ void populateTopLevelSymbol(FileBin_VarInfoType* node, QStandardItem* parentItem
 
         node = node->next;
     }
+
+
+
 }
 
 QStandardItemModel *model, *modelSymbol;
@@ -321,11 +351,145 @@ MainWindow::MainWindow(QWidget *parent)
 {
     ui->setupUi(this);
 
+    // Flat button style
+    QString style = R"(
+
+/* The main menu bar container */
+QMenuBar {
+background-color: #f0f0f0;
+    font-size: 11px;
+    spacing: 0px;              /* No gap between File, Edit, etc. */
+    min-height: 18px;          /* Forces a slim bar */
+    border-bottom: 1px solid #d0d0d0;
+}
+
+/* Individual menu items (File, Edit, etc.) */
+QMenuBar::item {
+    background-color: transparent;
+    padding: 4px 10px;         /* Horizontal spacing for small text */
+    margin: 1px;
+    border-radius: 3px;        /* Consistent rounded edges */
+}
+
+/* Hover state for menu items */
+QMenuBar::item:selected {
+    background-color: #e2e2e2; /* Subtle grey hover */
+    color: #000000;
+}
+
+/* The actual dropdown menus */
+QMenu {
+    background-color: #ffffff;
+    border: 1px solid #d0d0d0;
+    font-size: 11px;
+}
+
+QMenu::item {
+background: transparent;
+    padding: 5px 6px;          /* 1px top/bottom is the extreme limit */
+    margin: 0px;
+    border-radius: 2px;
+}
+
+QMenu::item:selected {
+    background-color: #80aee0; /* Fynix blue for the dropdown selection */
+    color: white;
+}
+
+
+    /* QPushButton / QToolButton */
+    QPushButton:checked, QToolButton:checked {
+        background-color: #5aa0ff;
+        color: white;
+        border: none;
+        border-radius: 0;
+    }
+    QPushButton, QToolButton {
+        background-color: transparent;
+        color: black;
+        border: none;
+        border-radius: 0;
+    }
+    QPushButton:hover, QToolButton:hover {
+        background-color: #e6f0fa;
+    }
+    QPushButton:disabled, QToolButton:disabled {
+        color: #888888;
+        background-color: transparent;
+        border: none;
+    }
+
+    /* QTreeWidget selected items */
+    QTreeWidget::item:selected {
+        background-color: #80aee0;
+        color: black; /* optional: white text on blue */
+    }
+
+    QTreeWidget::item:selected:hover {
+        background-color: #80aee0;
+        color: black; /* optional: white text on blue */
+    }
+
+    /* QTreeWidget hover */
+    QTreeWidget::item:hover {
+        background-color: #d0e4ff;
+    }
+
+    /* Remove focus rectangle / dotted line */
+    QTreeWidget::item:focus {
+        outline: none;
+    }
+
+/* Tighten the toolbar container */
+QToolBar {
+    background-color: #f0f0f0;
+    border: none;
+    border-bottom: 1px solid #d0d0d0;
+    spacing: 4px;               /* Minimal space between buttons */
+    padding: 3px;               /* Minimal padding around the bar */
+}
+
+/* Compact Buttons */
+QToolBar QToolButton {
+background-color: transparent;
+    border: none;
+    border-radius: 4px;
+    padding: 5px;               /* Balanced padding */
+    margin: 0px;
+}
+
+QToolButton:hover {
+    background-color: #d0e4ff;
+}
+
+QToolButton:checked {
+    background-color: #80aee0;
+}
+)";
+
+    this->setStyleSheet(style);
+
+
+    // Apply to the whole main window
+    //this->setStyleSheet(buttonStyle);
+    elf = new FileBin_ELF();
+    dwarf = new FileBin_DWARF();
+
+    this->ui_BinCalibWidget = new BinCalibToolWidget(this, elf);
+
+    // Force the menubar to be strictly the height of its contents
+    ui->menubar->setContentsMargins(0, 0, 0, 0);
+
+    // If using a layout for the window, ensure no gap between menu and toolbar
+    this->layout()->setSpacing(0);
+
     setWindowTitle(
         QString("%1 v%2")
             .arg(QCoreApplication::applicationName())
             .arg(QCoreApplication::applicationVersion())
         );
+
+
 
     ui->splitter->setSizes(QList<int>() << 800 << 100);
 
@@ -333,16 +497,72 @@ MainWindow::MainWindow(QWidget *parent)
 
     model = new QStandardItemModel(this);
 
-    elf = new FileBin_ELF();
-    dwarf = new FileBin_DWARF();
+
 
     setAcceptDrops(true);
 
     ui->treeView->setModel(model);
 
+    ui->toolBar->setIconSize(QSize(20, 20));
+    ui->toolBar->setFixedHeight(36);          // Total height including padding
+    ui->toolBar->setVisible(false);
+
     modelSymbol = new QStandardItemModel(this);
 
     ui->treeView_2->setModel(modelSymbol);
+
+    ui->treeView_2->setFocusPolicy(Qt::NoFocus);
+    //ui->->setFocusPolicy(Qt::NoFocus);
+
+    ui->tabWidget_2->addTab(this->ui_BinCalibWidget, "Calibrator");
+
+    ui->tabWidget_2->setTabIcon(0, QIcon(":/icon/inspect.svg"));
+
+    for (int i = 0; i < ui->tabWidget_2->count(); ++i) {
+        ui->tabWidget_2->setTabText(i, "");  // remove text
+    }
+
+    QIcon homeIcon(":/icon/inspect.svg");
+    ui->tabWidget_2->setTabIcon(0, rotateIcon(homeIcon, 90)); // rotate 45 degrees
+
+    QIcon settingsIcon(":/icon/calibrate.svg");
+    ui->tabWidget_2->setTabIcon(1, rotateIcon(settingsIcon, 90)); // rotate 90 degrees
+
+    ui->tabWidget_2->setIconSize(QSize(34, 34)); // icon fits nicely inside 48x48 tab
+    ui->tabWidget_2->tabBar()->setFocusPolicy(Qt::NoFocus);
+
+    QTabBar* bar = ui->tabWidget_2->tabBar();
+
+    // Change cursor when hovering over any tab
+    //bar->setCursor(Qt::PointingHandCursor);  // hand cursor
+
+    bar->setStyleSheet(R"(
+    QTabBar::tab {
+        width: 48px;
+        height: 48px;
+        padding-left: 3px;   /* reserve space for vertical bar */
+        padding-right: 2px;
+        padding-top: 0px;
+        padding-bottom: 8px;
+        margin: 0px;
+        border: none;
+        border-radius: 0px;
+        background: #f3f3f3;
+        qproperty-alignment: AlignCenter; /* center icon */
+    }
+
+    QTabBar::tab:selected {
+        border-left: 3px solid #80aee0; /* vertical selection bar */
+        padding-left: 0px; /* keep icon centered */
+    }
+
+    QTabBar::tab:hover:!selected {
+        border-left: 3px solid #e6f0fa;  /* lighter blue */
+        padding-left: 0px;               /* keep icon centered */
+background: #e6f0fa;             /* subtle grey hover */
+    }
+)");
+
 }
 
 MainWindow::~MainWindow()
@@ -568,6 +788,16 @@ void MainWindow::loadElf(std::string file_name)
     beautifyTreeView(ui, ui->treeView_2);
 }
 
+
+
+
+void MainWindow::AddNewBaseFile(QString Filename)
+{
+    FileBin_IntelHex_Memory *newBaseFile = new FileBin_IntelHex_Memory();
+    newBaseFile->Load(Filename.toStdString().c_str(), LIB_FIRMWAREBIN_HEX);
+    this->ui_BinCalibWidget->Calib_BaseFile_AddNew(Filename.toStdString(), newBaseFile);
+}
+
 void MainWindow::on_actionOpen_triggered(bool checked)
 {
     Q_UNUSED(checked);
@@ -622,8 +852,29 @@ void MainWindow::dropEvent(QDropEvent *event)
             // Check the file extension
             if (extension == "elf")
             {
+                qDebug() << "Dropped master file:" << filePath;
                 loadElf(filePath.toStdString());
 
+
+                //IsMasterFileLoaded = true;
+            }
+            else if (extension == "hex")
+            {
+                qDebug() << "Dropped image file:" << filePath;
+                ///if (!Mem2[this->BaseFileCnt].Load(filePath.toStdString().c_str(), LIB_FIRMWAREBIN_HEX))
+                //{
+                //    cout << "Error loading" << endl;
+                //    return;
+               // }
+                //else
+                //{
+                 //   cout << "Loading finished" << endl;
+                    AddNewBaseFile(filePath);
+
+                  //  Parse_Master_Symbol();
+                   // parseHexFile();
+                   // isFileLoaded = true;
+                //}
             }
             else
             {
